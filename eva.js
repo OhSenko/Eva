@@ -1,5 +1,6 @@
-const { Client, Guild, GatewayIntentBits, ActivityType, Collection, EmbedBuilder } = require('discord.js');
+const { Client, Guild, GatewayIntentBits, ActivityType, Collection, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { token } = require('./config.json');
+const strings = require('./strings.json');
 const path = require('path');
 const fs = require('fs');
 
@@ -27,11 +28,14 @@ for (const file of commandFiles) {
 }
 
 client.once('ready', async () => {
-    console.log(`Logged in as ${client.user.tag}`);
-  
-    client.user.setActivity('naughty stuff~', { type: ActivityType.Watching});
-  
-    await client.application.commands.set(client.commands.map(command => command.data));
+  const randomStatus = strings.statusMessages[Math.floor(Math.random() * strings.statusMessages.length)];
+
+  client.user.setActivity(randomStatus, { type: ActivityType.Watching });
+
+  const randomReadyMessage = strings.readyMessages[Math.floor(Math.random() * strings.readyMessages.length)];
+  console.log(randomReadyMessage);
+
+  await client.application.commands.set(client.commands.map(command => command.data));
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -48,68 +52,206 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-client.on('messageCreate', async (message) => {
+const prefixes = ['?', '!'];
+
+function makeEmbed(args) {
+  const embed = new EmbedBuilder();
+  if (args.title) embed.setTitle(args.title);
+  if (args.description) embed.setDescription(args.description);
+  if (args.author) embed.setAuthor(args.author);
+  if (args.footer) embed.setFooter(args.footer);
+  if (args.thumbnail) embed.setThumbnail(args.thumbnail);
+  if (args.image) embed.setImage(args.image);
+  if (args.timestamp) embed.setTimestamp(args.timestamp);
+
+  const color = process.env.COLOUR || "#FF0000";
+  embed.setColor(color);
+
+  return embed;
+}
+
+client.on("messageCreate", async message => {
   if (message.author.bot) return;
 
   const content = message.content.toLowerCase();
 
-  if (content.includes('tweaking')) {
-    await message.reply('https://tenor.com/view/xqc-twitch-osu-gif-25667324');
-  } else if (content.includes('senko')) {
-    await message.reply('https://cdn.discordapp.com/attachments/1291678159988723794/1312498303522439278/caption.gif?ex=674eb10c&is=674d5f8c&hm=f43302870d424b192a96ea5702d296314694b877d32db4ce9fa9805596c20981&');
-  } else if (content.includes('thanks eva')) {
-    await message.reply('No problem, KING!');
-  } else if (content.includes('my flow')) {
-    await message.reply('https://cdn.discordapp.com/attachments/717498714259980378/1307167030205616229/caption-5-1.gif?ex=674e69a9&is=674d1829&hm=3c88b14e7043d0a5184c9076e51d96bb49b786da9e745600faabeeca3255a92a&');
-  } else if (content.includes('haii')) {
-    await message.reply('https://media.discordapp.net/attachments/1313140792935845888/1313140896803586049/cat-silly-hello.gif?ex=674f0d42&is=674dbbc2&hm=bafeba951e0c8ca56b0af0488c0a42cd61aec8d51f9f51bab7c4a341db0bf43d&=');
+  for (let keyword in strings.reactions) {
+    if (content.includes(keyword)) {
+      await message.reply(strings.reactions[keyword]);
+      return;
+    }
   }
 
-  const urlRegex = /https:\/\/discord\.com\/channels\/\d+\/\d+\/(\d+)/;
-  const match = message.content.match(urlRegex);
 
-  if (match) {
-    const messageId = match[1];
-    const channelId = match[0].split("/")[5];
+  if (message.guild) {
+    const matches = Array.from(message.content.matchAll(/discord\.com\/channels\/(\d{17,19})\/(\d{17,19})(?:\/(\d{17,19}))?(?:[^\d\/](?<!\>)|$)/g));
+    if (!matches.length) return;
 
-    try {
-      const channel = await message.guild.channels.fetch(channelId);
-      if (!channel) {
-        return message.reply('I could not find the channel for the message');
+    const done = new Set();
+    const embeds = [];
+    let charCount = 0;
+
+    function countEmbedChars(embed) {
+      charCount += embed.data.author?.name?.length + embed.data.footer?.text?.length;
+      if (embed.data.description) charCount += embed.data.description.length;
+      if (embed.data.fields) for (const field of embed.data.fields) charCount += field.name.length + field.value.length;
+      if (charCount > 6000) return true;
+    }
+
+    for (const match of matches) {
+      const channel = await client.channels.fetch(match[2]);
+      if (!channel) continue;
+
+      if (!match[3] && (channel.type === 'PublicThread' || channel.type === 'PrivateThread')) {
+        const parent = await client.channels.fetch(channel.parentId);
+
+        if (parent.type === 'GuildForum') {
+          const starter = await channel.fetchStarterMessage().catch(() => {});
+          if (!starter) continue;
+
+          const id = `${match[1]},${match[2]},${starter.id}`;
+          if (done.has(id)) continue;
+
+          if (!starter.member) {
+            Object.defineProperty(starter, "member", {
+              value: starter.author
+            });
+          }
+
+          const embed = makeEmbed({
+            author: {
+              name: `Forum post by ${starter.member.displayName ?? "Unknown Member"}`,
+              url: `https://discord.com/channels/${starter.guildId}/${starter.channelId}/${starter.id}`
+            },
+            footer: {
+              text: `Quoted by ${message.member.username}`,
+              iconURL: message.member.displayAvatarURL({ extension: 'png' })
+            },
+            thumbnail: starter.member.displayAvatarURL({ extension: 'png', size: 64 }),
+            timestamp: starter.createdTimestamp,
+            title: channel.name,
+            description: starter.content
+          });
+
+          let image;
+          if (starter.attachments.size !== 0) {
+            const attachment = starter.attachments.first();
+            if (attachment.contentType.startsWith("image/")) {
+              embed.setImage(attachment.url);
+              image = true;
+            } else embed.addFields({
+              name: "Attached file",
+              value: `**[${attachment.name}](${attachment.url})**`
+            });
+          }
+
+          if (!image) {
+            const url = starter.content.match(/https?:\/\/\S*?\.(png|jpe?g|gif|webp)/i);
+            if (url) {
+              embed.setImage(url[0].replace(/\s/g, ""));
+            }
+          }
+
+          if (countEmbedChars(embed)) break;
+
+          embeds.push(embed);
+          done.add(id);
+          if (embeds.length > 9) break;
+        }
+        continue;
       }
 
-      const originalMessage = await channel.messages.fetch(messageId);
+      const id = `${match[1]},${match[2]},${match[3]}`;
+      if (done.has(id)) continue;
 
-      console.log('Original Message:', originalMessage);
-      console.log('Attachments:', originalMessage.attachments);
+      const quote = await channel.messages.fetch(match[3]).catch(() => {});
+      if (!quote) continue;
 
-      const messageContent = originalMessage.content || " ";
-
-      const embed = new EmbedBuilder()
-        .setColor('#0099ff')
-        .setAuthor({
-          name: originalMessage.author.username,
-          iconURL: originalMessage.author.displayAvatarURL(),
-        })
-        .setDescription(messageContent)
-        .setTimestamp(originalMessage.createdAt)
-        .setFooter({
-          text: `Quoted by ${message.author.username}`,
-          iconURL: message.author.displayAvatarURL(),
+      if (!quote.member) {
+        Object.defineProperty(quote, "member", {
+          value: quote.author
         });
-
-      if (originalMessage.attachments.size > 0) {
-        const attachment = originalMessage.attachments.first();
-        console.log('First Attachment URL:', attachment.url);
-        embed.setImage(attachment.url);
       }
 
-      await message.reply({
-        embeds: [embed],
+      const embed = makeEmbed({
+        author: {
+          name: `Message sent by ${quote.member?.displayName ?? "Unknown Member"}`,
+          url: `https://discord.com/channels/${quote.guildId}/${quote.channelId}/${quote.id}`
+        },
+        footer: {
+          text: `Quoted by ${message.member.displayName}`,
+          iconURL: message.member.displayAvatarURL({ extension: 'png' })
+        },
+        thumbnail: quote.member.displayAvatarURL({ extension: 'png', size: 64 }),
+        timestamp: quote.createdTimestamp,
+        description: quote.content
       });
-    } catch (error) {
-      console.error('Error fetching message:', error);
-      await message.reply('Something went wrong :3');
+
+      let image;
+      if (quote.attachments?.size) {
+        const attachment = quote.attachments.first();
+        if (attachment.contentType?.startsWith("image/")) {
+          embed.setImage(attachment.url);
+          image = true;
+        } else embed.addFields({
+          name: "Attached file",
+          value: `**[${attachment.name}](${attachment.url})**`
+        });
+      }
+
+      if (!image && quote.content) {
+        const url = quote.content.match(/https?:\/\/\S*?\.(png|jpe?g|gif|webp)/i);
+        if (url) {
+          embed.setImage(url[0].replace(/\s/g, ""));
+        }
+      }
+
+      if (quote.stickers?.size) {
+        embed.addFields({
+          name: `${quote.stickers.size} Sticker${quote.stickers.size ? "" : "s"}`,
+          value: quote.stickers.map(e => e.name).join(", ")
+        });
+      }
+
+      if (countEmbedChars(embed)) break;
+
+      embeds.push(embed);
+      done.add(id);
+      if (embeds.length > 9) break;
+    }
+
+    if (embeds.length) {
+      const row = new ActionRowBuilder();
+      const jump = new ButtonBuilder()
+        .setLabel("Jump")
+        .setURL(embeds[0].data.author.url)
+        .setStyle(ButtonStyle.Link);
+
+      const remove = new ButtonBuilder()
+        .setEmoji('✖')
+        .setCustomId(`delete_${message.author.id}`)
+        .setStyle(ButtonStyle.Danger);
+
+      row.addComponents([jump, remove]);
+
+      message.reply({
+        allowedMentions: {},
+        embeds,
+        components: [row]
+      }).catch(() => {});
+    }
+  }
+});
+
+client.on("interactionCreate", interaction => {
+  if (interaction.isButton() && interaction.customId) {
+    if (interaction.customId.startsWith("delete_")) {
+      if (interaction.user.id === interaction.customId.slice(7) || ["ManageMessages", "ModerateMembers", "KickMembers", "BanMembers"].some(permission => interaction.member.permissions.has(PermissionsBitField.Flags[permission]))) {
+        interaction.message.delete().catch(() => {});
+        interaction.reply({ content: "Message deleted", ephemeral: true });
+      } else {
+        interaction.reply({ content: "You can't delete this message", ephemeral: true });
+      }
     }
   }
 });

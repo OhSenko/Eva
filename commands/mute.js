@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
+const strings = require('../strings.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -26,21 +27,25 @@ module.exports = {
         }
 
         await member.roles.add(muteRoleID);
-        await interaction.reply(`<@!${user.id}> was silenced by judgement of the goddess.`);
+
+        const muteMessage = strings.muteMessages[Math.floor(Math.random() * strings.muteMessages.length)];
+        await interaction.reply(`<@!${user.id}> \n ${muteMessage}`);
 
         if (duration) {
           const msDuration = parseDuration(duration);
           if (msDuration) {
             setTimeout(async () => {
               await member.roles.remove(muteRoleID);
-              await interaction.followUp(`<@!${user.id}> has been freed by the grace of the goddess.`);
+
+              const unmuteMessage = strings.unmuteMessages[Math.floor(Math.random() * strings.unmuteMessages.length)];
+              await interaction.followUp(`<@!${user.id}> \n ${unmuteMessage}`);
             }, msDuration);
           } else {
             await interaction.followUp("Invalid duration format. Please use one of the following: s, m, h, d, w, mo, y.");
           }
         }
       } else {
-        await interaction.reply("Who the fuck are you talking about?");
+        await interaction.reply("Who are you trying to mute? I can't find them in the server.");
       }
     }
   },

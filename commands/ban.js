@@ -1,4 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
+const strings = require('../strings.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -22,14 +23,20 @@ module.exports = {
       const member = interaction.guild.members.cache.get(user.id);
       if (member) {
         await member.ban({ reason: banReason });
-        await interaction.reply(`<@!${user.id}> received judgement, and was therefore banished. <a:kys:1313101042707075134>`);
+
+        const banMessage = strings.banMessages[Math.floor(Math.random() * strings.banMessages.length)];
+        
+        await interaction.reply(`<@!${user.id}> ${banMessage} <a:kys:1313101042707075134>`);
 
         if (duration) {
           const msDuration = parseDuration(duration);
           if (msDuration) {
             setTimeout(async () => {
               await interaction.guild.members.unban(user.id);
-              await interaction.followUp(`<@!${user.id}> was released from the pits of hell. Give them a warm welcome back~`);
+
+              const unbanMessage = strings.unbanMessages[Math.floor(Math.random() * strings.unbanMessages.length)];
+
+              await interaction.followUp(`<@!${user.id}> ${unbanMessage}`);
             }, msDuration);
           } else {
             await interaction.followUp("Invalid duration format. Please use one of the following: s, m, h, d, w, mo, y.");
