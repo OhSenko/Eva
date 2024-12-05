@@ -1,5 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 
+// i wish it wouldnt snitch on me using the command but it does
+// i dont care
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('echo')

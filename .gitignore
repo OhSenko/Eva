@@ -2,3 +2,7 @@
 config.json
 config.json
 /node_modules
+config.json
+data/modlogs.json
+README.md
+strings.json

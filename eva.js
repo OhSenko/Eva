@@ -1,8 +1,12 @@
 const { Client, Guild, GatewayIntentBits, ActivityType, Collection, EmbedBuilder, PermissionsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { token } = require('./config.json');
+const config = require('./config.json');
 const strings = require('./strings.json');
 const path = require('path');
 const fs = require('fs');
+
+// YOOO THESE INTENTS ARE SUPER IMPORTANT
+// Discord will literally throw hands if i forget any of these
 
 const client = new Client({
   intents: [
@@ -10,21 +14,27 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
   ],
 });
 
 client.commands = new Collection();
 
-const commandFiles = fs.readdirSync(path.join(__dirname, 'commands')).filter(file => file.endsWith('.js'));
+const commandFolders = fs.readdirSync(path.join(__dirname, 'commands'));
 
-for (const file of commandFiles) {
-  const command = require(`./commands/${file}`);
-  
-  if (command.data && command.data.name) {
-    client.commands.set(command.data.name, command);
-  } else {
-    console.error(`Command in file ${file} is missing 'data.name' property.`);
-  }
+for (const folder of commandFolders) {
+    const commandFiles = fs.readdirSync(path.join(__dirname, 'commands', folder))
+        .filter(file => file.endsWith('.js'));
+    
+    for (const file of commandFiles) {
+        const command = require(`./commands/${folder}/${file}`);
+        
+        if (command.data && command.data.name) {
+            client.commands.set(command.data.name, command);
+        } else {
+            console.error(`Command in file ${folder}/${file} is missing 'data.name' property.`);
+        }
+    }
 }
 
 client.once('ready', async () => {
@@ -37,17 +47,29 @@ client.once('ready', async () => {
 
   await client.application.commands.set(client.commands.map(command => command.data));
 });
-
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isCommand()) return;
 
   const command = client.commands.get(interaction.commandName);
-  if (command) {
+  if (!command) return;
+
+  try {
+    await command.execute(interaction);
+  } catch (error) {
+    console.error(error);
     try {
-      await command.execute(interaction);
-    } catch (error) {
-      console.error(error);
-      await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
+      const errorMessage = { 
+        content: 'There was an error while executing this command!', 
+        ephemeral: true 
+      };
+      
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(errorMessage);
+      } else {
+        await interaction.reply(errorMessage);
+      }
+    } catch (e) {
+      console.error('Error while handling command error:', e);
     }
   }
 });
@@ -70,6 +92,14 @@ function makeEmbed(args) {
   return embed;
 }
 
+
+// VERY IMPORTANT
+// THIS IS THE MESSAGE HANDLER
+// EVERYTHING BELOW THIS COMMENT IS MESSAGE HANDLING
+// DO NOT TOUCH IT SENKO
+// SHIT WILL BREAK
+// I MEAN IT
+
 client.on("messageCreate", async message => {
   if (message.author.bot) return;
 
@@ -82,6 +112,20 @@ client.on("messageCreate", async message => {
     }
   }
 
+  const hexColorRegex = /#([0-9A-Fa-f]{6})\b/g;
+  const matches = message.content.match(hexColorRegex);
+
+  if (matches) {
+    for (const hex of matches) {
+      const embed = new EmbedBuilder()
+          .setTitle('Color Preview')
+          .setDescription(`Here is ${hex}`)
+          .setColor(hex)
+          .setImage(`https://singlecolorimage.com/get/${hex.slice(1)}/100x100`);
+
+      await message.channel.send({ embeds: [embed] });
+    }
+  }
 
   if (message.guild) {
     const matches = Array.from(message.content.matchAll(/discord\.com\/channels\/(\d{17,19})\/(\d{17,19})(?:\/(\d{17,19}))?(?:[^\d\/](?<!\>)|$)/g));
@@ -256,4 +300,79 @@ client.on("interactionCreate", interaction => {
   }
 });
 
+client.deletedMessages = new Map();
+
+client.on('messageDelete', (message) => {
+  if (message.partial) return;
+
+  client.deletedMessages.set(message.channel.id, {
+    content: message.content,
+    author: message.author,
+    timestamp: message.createdTimestamp,
+  });
+});
+
+
+client.on('messageDelete', async (message) => {
+  if (message.partial || message.author.bot) return;
+
+  const logChannel = await client.channels.fetch(config.logChannelId);
+  if (!logChannel) return;
+
+  const embed = new EmbedBuilder()
+    .setColor('#FF0000')
+    .setTitle('Message Deleted')
+    .setDescription(message.content || '*No content*')
+    .addFields(
+      { name: 'Author', value: message.author.tag, inline: true },
+      { name: 'Channel', value: message.channel.name, inline: true },
+      { name: 'Time', value: `<t:${Math.floor(message.createdTimestamp / 1000)}:R>`, inline: true }
+    )
+    .setFooter({ text: `Message ID: ${message.id}`, iconURL: message.author.displayAvatarURL() })
+    .setTimestamp();
+
+  logChannel.send({ embeds: [embed] });
+});
+
+client.on('messageUpdate', async (oldMessage, newMessage) => {
+  if (oldMessage.author.bot || oldMessage.content === newMessage.content) return;
+
+  const logChannel = await client.channels.fetch(config.logChannelId);
+  if (!logChannel) return;
+
+  const embed = new EmbedBuilder()
+    .setColor('#FFA500')
+    .setTitle('Message Edited')
+    .setDescription(`**Before:** ${oldMessage.content}\n**After:** ${newMessage.content}`)
+    .addFields(
+      { name: 'Author', value: oldMessage.author.tag, inline: true },
+      { name: 'Channel', value: oldMessage.channel.name, inline: true },
+      { name: 'Time', value: `<t:${Math.floor(oldMessage.createdTimestamp / 1000)}:R>`, inline: true }
+    )
+    .setFooter({ text: `Message ID: ${oldMessage.id}`, iconURL: oldMessage.author.displayAvatarURL() })
+    .setTimestamp();
+
+  logChannel.send({ embeds: [embed] });
+});
+
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+  if (oldMember.isCommunicationDisabled() && !newMember.isCommunicationDisabled()) {
+    const channel = newMember.guild.channels.cache.get(config.logChannelId);
+    if (channel) {
+      const unmuteMessage = strings.unmuteMessage.replace('{user}', newMember.user.tag);
+      channel.send(unmuteMessage);
+    }
+  }
+});
+
 client.login(token);
+
+client.on('interactionCreate', async interaction => {
+    console.log('Interaction received:', interaction.customId);
+    
+    const interactionHandler = require('./events/interactionCreate.js');
+    await interactionHandler.execute(interaction).catch(error => {
+        console.error('Error handling interaction:', error);
+    });
+});
+

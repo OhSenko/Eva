@@ -1,5 +1,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 
+// gambling addiction :3
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('coinflip')
