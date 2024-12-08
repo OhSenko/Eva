@@ -1,51 +1,50 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const AuditLogger = require('../../utils/auditLogger');
+import { EmbedBuilder } from 'discord.js';
+import { logAudit } from '../../handlers/auditHandler.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('kick')
-    .setDescription('Kick a user from the server')
-    .addUserOption(option =>
-      option.setName('user')
-        .setDescription('The user to kick')
-        .setRequired(true))
-    .addStringOption(option =>
-      option.setName('reason')
-        .setDescription('Reason for the kick')
-        .setRequired(false))
-    .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers),
+export default {
+    name: 'kick',
+    description: 'Kicks a user in the balls',
+    async execute(message, args) {
+        if (!message.member.permissions.has('KickMembers')) {
+            const embed = new EmbedBuilder()
+                .setTitle("Access Denied")
+                .setDescription("You are not allowed to use this command.")
+                .setColor('#3498DB')
 
-  async execute(interaction) {
-    if (!interaction.member.permissions.has('KickMembers')) {
-      return interaction.reply({ 
-        content: 'You do not have permission to kick members.', 
-        ephemeral: true 
-      });
+            return message.reply({ embeds: [embed] });
+        }
+        const target = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
+        if (!target) {
+            return message.reply("Uh, that's not a valid user");
+        }
+        if (message.member.roles.highest.position <= target.roles.highest.position) {
+            return message.reply('That user is above you, nice try though.');
+        }
+        if (target.id === message.author.id) {
+            return message.reply('Hah, nice try.');
+        }
+        const reason = args.slice(1).join(' ') || 'No reason specified';
+
+        const __filename = fileURLToPath(import.meta.url);
+        const __dirname = path.dirname(__filename);
+
+        const stringsPath = path.join(__dirname, '../../config/strings.json');
+        let strings;
+        try {
+            strings = JSON.parse(fs.readFileSync(stringsPath, 'utf8'));
+        } catch (err) {
+            console.error('Error reading strings.json:', err);
+            return message.reply('There was an error fetching the ban message.');
+        }
+
+        const banMessages = strings.user_was_x;
+        const randomMessage = banMessages[Math.floor(Math.random() * banMessages.length)];
+
+        await logAudit(message, target, 'kick', reason);
+
+        message.channel.send(`<@${target.id}> was ${randomMessage}`);
     }
-
-    const user = interaction.options.getUser('user');
-    const reason = interaction.options.getString('reason') || 'No reason provided';
-
-    await interaction.guild.members.kick(user, reason);
-
-    const kickEmbed = new EmbedBuilder()
-      .setColor(0xFFA500)  // Orange color for kick
-      .setTitle('👢 User Kicked')
-      .addFields(
-        { name: 'User', value: `${user.tag} (<@${user.id}>)`, inline: true },
-        { name: 'Moderator', value: `<@${interaction.user.id}>`, inline: true },
-        { name: 'Reason', value: reason }
-      )
-      .setThumbnail(user.displayAvatarURL())
-      .setTimestamp();
-
-    await interaction.reply({ embeds: [kickEmbed] });
-
-    await AuditLogger.logModAction(
-      interaction,
-      'Kick',
-      user,
-      reason
-    );
-  },
 };

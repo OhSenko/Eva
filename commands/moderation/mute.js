@@ -1,88 +1,77 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const AuditLogger = require('../../utils/auditLogger');
+import { EmbedBuilder } from 'discord.js';
+import { logAudit } from '../../handlers/auditHandler.js';
 
-module.exports = {
-    data: new SlashCommandBuilder()
-        .setName('mute')
-        .setDescription('Timeout a user')
-        .addUserOption(option =>
-            option.setName('user')
-                .setDescription('The user to timeout')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('duration')
-                .setDescription('Timeout duration (e.g., 1h, 1d, 1w)')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('reason')
-                .setDescription('Reason for the timeout')
-                .setRequired(false))
-        .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
+export default {
+    name: 'mute',
+    description: 'Mutes a user for a specified amount of time.',
+    async execute(message, args) {
+        if (!message.member.permissions.has('MuteMembers')) {
+            const embed = new EmbedBuilder()
+                .setTitle("Access Denied")
+                .setDescription("You are not allowed to use this command.")
+                .setColor('#3498DB')
 
-    async execute(interaction) {
-        if (!interaction.member.permissions.has('ModerateMembers')) {
-            return interaction.reply({ 
-                content: 'You do not have permission to timeout members.', 
-                ephemeral: true 
-            });
+            return message.reply({ embeds: [embed] });
+        }
+        const target = message.mentions.members.first() || await message.guild.members.fetch(args[0]).catch(() => null);
+        if (!target) {
+            return message.reply('Uh, that is not a valid user. Try again~');
+        }
+        if (message.member.roles.highest.position <= target.roles.highest.position) {
+            return message.reply('That user is above you, nice try though.');
+        }
+        if (target.id === message.author.id) {
+            return message.reply('Nice try.');
+        }
+        const timeArg = args[1];
+        let muteDuration = null;
+
+        if (timeArg) {
+            const timeRegex = /^(\d+)(s|m|h|d|w)$/;
+            const match = timeArg.match(timeRegex);
+            
+            if (match) {
+                const value = parseInt(match[1], 10);
+                const unit = match[2];
+
+                let milliseconds = 0;
+                switch (unit) {
+                    case 's':
+                        milliseconds = value * 1000;
+                        break;
+                    case 'm':
+                        milliseconds = value * 60 * 1000;
+                        break;
+                    case 'h':
+                        milliseconds = value * 60 * 60 * 1000;
+                        break;
+                    case 'd':
+                        milliseconds = value * 24 * 60 * 60 * 1000;
+                        break;
+                    case 'w':
+                        milliseconds = value * 7 * 24 * 60 * 60 * 1000;
+                        break;
+                    default:
+                        return message.reply('Invalid time format.');
+                }
+
+                muteDuration = Date.now() + milliseconds;
+            } else {
+                return message.reply('Please use a valid time format (s, m, h, d, w).');
+            }
         }
 
-        const user = interaction.options.getUser('user');
-        const duration = interaction.options.getString('duration');
-        const reason = interaction.options.getString('reason') || 'No reason provided';
-        
-        const durationMs = parseDuration(duration);
-        
-        if (!durationMs) {
-            return interaction.reply({ 
-                content: 'Invalid duration format. Use format: number + s/m/h/d/w/mo/y (e.g., 1h, 1d, 1w)',
-                ephemeral: true 
-            });
+        try {
+            await target.timeout(muteDuration ? muteDuration - Date.now() : null, args.slice(2).join(' ') || 'No reason specified');
+        } catch (err) {
+            console.error(err);
+            return message.reply('There was an error muting the user. Make sure I have permission to time them out.');
         }
 
-        const member = await interaction.guild.members.fetch(user.id);
-        await member.timeout(durationMs, reason);
+        const reason = args.slice(2).join(' ') || 'No reason specified';
 
-        const muteEmbed = new EmbedBuilder()
-            .setColor(0xFFFF00)  // Yellow color for timeout
-            .setTitle('🔇 User Timed Out')
-            .addFields(
-                { name: 'User', value: `${user.tag} (<@${user.id}>)`, inline: true },
-                { name: 'Moderator', value: `<@${interaction.user.id}>`, inline: true },
-                { name: 'Duration', value: duration, inline: true },
-                { name: 'Reason', value: reason }
-            )
-            .setThumbnail(user.displayAvatarURL())
-            .setTimestamp();
+        await logAudit(message, target, 'mute', reason, muteDuration ? `Duration: ${muteDuration - Date.now()}ms` : 'Indefinite');
 
-        await interaction.reply({ embeds: [muteEmbed] });
-
-        // Log the moderation action
-        await AuditLogger.logModAction(
-            interaction,
-            'Timeout',
-            user,
-            reason,
-            duration
-        );
+        message.channel.send(`<@${target.id}> has been muted!`);
     }
 };
-
-function parseDuration(duration) {
-    const regex = /^(\d+)([shd])$/;
-    const match = duration.match(regex);
-    
-    if (!match) return null;
-    
-    const value = parseInt(match[1]);
-    const unit = match[2];
-    
-    const ms = unit === 's'
-        ? value * 1000  // seconds to ms
-        : unit === 'h'
-        ? value * 60 * 60 * 1000  // hours to ms
-        : value * 24 * 60 * 60 * 1000;  // days to ms
-        
-    // Discord maximum timeout is 28 days
-    return Math.min(ms, 28 * 24 * 60 * 60 * 1000);
-}

@@ -1,8 +1,6 @@
 
+auditLogs.json
 config.json
-config.json
+/eva/node_modules
 /node_modules
-config.json
-data/modlogs.json
-README.md
-strings.json
+package-lock.json

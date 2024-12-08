@@ -1,8 +1,0 @@
-{
-    "token": "ur token here xd",
-    "logChannelId": "mod logs",
-    "moderatorRole": "mod role id",
-    "adminRole": "admin role id",
-    "pingDelay": 120000,
-    "auditLogChannelId": "audit logs"
-}

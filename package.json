@@ -1,0 +1,12 @@
+{
+  "name": "eva",
+  "version": "0.1.0",
+  "main": "eva.js",
+  "type": "module",
+  "dependencies": {
+    "discord.js": "^14.0.0",
+    "mathjs": "^14.0.0",
+    "memory": "^0.0.3",
+    "moment": "^2.30.1"
+  }
+}
